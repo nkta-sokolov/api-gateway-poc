@@ -1,0 +1,65 @@
+services:
+  redis:
+    image: redis:7.2-alpine
+    container_name: api-gateway-redis
+    command: [ "redis-server", "--appendonly", "yes" ]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: hash-unlocker-postgres
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD", "pg_isready", "-U", "postgres", "-d", "postgres" ]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+
+  hash-unlocker:
+    image: hash-unlocker:latest
+    container_name: hash-unlocker
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -fsS http://localhost:8080/actuator/health || exit 1" ]
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/postgres
+      FAIL_ON_SAVE: true
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api-gateway:
+    image: api-gateway:latest
+    container_name: api-gateway
+    ports:
+      - "9080:9080"
+    environment:
+      SPRING_DATA_REDIS_HOST: redis
+      HASH_UNLOCKER_BASE_URI: http://hash-unlocker:8080
+    depends_on:
+      redis:
+        condition: service_healthy
+      hash-unlocker:
+        condition: service_healthy
+
+volumes:
+  redis_data:
+  pg_data:

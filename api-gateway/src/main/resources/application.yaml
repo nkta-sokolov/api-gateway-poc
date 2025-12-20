@@ -1,0 +1,72 @@
+server:
+  port: 9080
+
+hash-unlocker:
+  base-uri: http://localhost:8080
+
+spring:
+  application:
+    name: api-gateway
+
+  data:
+    redis:
+      host: localhost
+      port: 6379
+
+  cloud:
+    gateway:
+      server:
+        webflux:
+          httpclient:
+            connect-timeout: 2000
+            response-timeout: 3s
+          default-filters:
+            - name: RequestRateLimiter
+              args:
+                key-resolver: "#{@apiKeyResolver}"
+                redis-rate-limiter.replenishRate: 1
+                redis-rate-limiter.burstCapacity: 60
+                redis-rate-limiter.requestedTokens: 10
+          routes:
+            - id: hash-unlocker-create-applications
+              uri: ${hash-unlocker.base-uri}
+              predicates:
+                - Path=/api/public/applications
+                - Method=POST
+              filters:
+                - name: RewritePath
+                  args:
+                    regexp: "^/api/public/applications(?<segment>/?.*)$"
+                    replacement: "/api/local/applications${segment}"
+
+                - name: CircuitBreaker
+                  args:
+                    name: applicationsCB
+                    fallbackUri: forward:/fallback
+                    statusCodes: BAD_GATEWAY,SERVICE_UNAVAILABLE,GATEWAY_TIMEOUT,INTERNAL_SERVER_ERROR
+
+                - name: Retry
+                  args:
+                    retries: 2
+                    methods: POST
+                    statuses: BAD_GATEWAY,SERVICE_UNAVAILABLE,GATEWAY_TIMEOUT,INTERNAL_SERVER_ERROR
+                    backoff:
+                      firstBackoff: 200ms
+                      maxBackoff: 2s
+                      factor: 2
+                      basedOnPreviousValue: true
+
+resilience4j:
+  circuitbreaker:
+    instances:
+      applicationsCB:
+        slidingWindowType: COUNT_BASED
+        slidingWindowSize: 5
+        minimumNumberOfCalls: 5
+        failureRateThreshold: 100
+        waitDurationInOpenState: 30s
+
+security:
+  api-key:
+    allowed-keys:
+      - test
