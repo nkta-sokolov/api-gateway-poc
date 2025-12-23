@@ -15,3 +15,5 @@ CREATE TABLE IF NOT EXISTS hash
     plaintext      TEXT,
     CONSTRAINT hash_application_id_fkey FOREIGN KEY (application_id) REFERENCES application (id) ON DELETE CASCADE
 );
+
+CREATE INDEX IF NOT EXISTS hash_digest_idx on hash(digest);
